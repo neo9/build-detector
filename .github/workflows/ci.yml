@@ -3,7 +3,7 @@ name: Build and publish to DockerHub (latest)
 on:
   push:
     branches:
-    - master
+    - main
 
 jobs:
   main:
