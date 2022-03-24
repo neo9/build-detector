@@ -34,13 +34,13 @@ help() {
     command echo "> build-detector detect [ --working-dir= ]"
     command echo
     command echo "Output detection information in JSON."
-    command echo
-    command echo "> build-detector build  [ --working-dir= , --dockerfile=, --registry= ]"
-    command echo
-    command echo "Detect and build the project by detecting the underlying framework."
-    command echo "You can optionnaly use a custom Dockerfile to build it (if not empty)."
-    command echo "--dockerfile and --registry are optionals but you will need to parse"
-    command echo "ouput in order to manually push the image to the registry."
+    # command echo
+    # command echo "> build-detector build  [ --working-dir= , --dockerfile=, --registry= ]"
+    # command echo
+    # command echo "Detect and build the project by detecting the underlying framework."
+    # command echo "You can optionnaly use a custom Dockerfile to build it (if not empty)."
+    # command echo "--dockerfile and --registry are optionals but you will need to parse"
+    # command echo "ouput in order to manually push the image to the registry."
 }
 
 # Build an image. In fact, this function is just a wrap to handle failure.
@@ -74,8 +74,8 @@ assert_installed() {
 
 while [ -n "$1" ]; do
     case "$1" in
+        # build)            OPERATION="build"  ;;
         detect)           OPERATION="detect" ;;
-        build)            OPERATION="build"  ;;
         -w|--working-dir) WORKING_DIR=$2     ; shift ;;
         -d|--dockerfile)  DOCKERFILE=$2      ; shift ;;
         -r|--registry)    REGISTRY_IMAGE=$2  ; shift ;;
