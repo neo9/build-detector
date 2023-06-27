@@ -1,3 +1,5 @@
 # VIM
-
 *.swp
+
+# Other
+build-detector.json
