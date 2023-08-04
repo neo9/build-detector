@@ -156,7 +156,7 @@ cat <<EOF > "${OUTPUT_PATH}/${OUTPUT_NAME}"
     "preinstall": "${preinstall}",
     "postinstall": "${postinstall}",
     "shouldBeDeployed": "${shouldBeDeployed}",
-    "detectedLhci": "${detectedLhci}"
+    "detectedLhci": "${detectedLhci}",
     "buildDependencies": "${buildDependencies}"
 }
 EOF
