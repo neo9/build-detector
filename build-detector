@@ -117,7 +117,7 @@ if [ -f lighthouserc.yml ]; then
     detectedLhci="true"
 fi
 
-if [[ $(PARAMS_DEPLOY_ENABLED) = "true" && -d values ]]; then
+if [[ "${PARAMS_DEPLOY_ENABLED}" == "true" && -d values ]]; then
     shouldBeDeployed="true"
 fi
 
