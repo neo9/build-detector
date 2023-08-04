@@ -1,315 +1,153 @@
-#! /bin/bash
+#!/bin/bash
 
 set -o errexit
 set -o pipefail
 
-WORKING_DIR="."
-DOCKERFILE="Dockerfile"
-REGISTRY_IMAGE=""
-DETECT_OUTPUT="json"
-OPERATION=""
+echo "Starting build detector..."
 
-###############################################################################
-# Functions definitions.
-###############################################################################
+# default values
+detectedBuildTool=""
+detectedImageBuildTool="cnb"
+detectedBuildFormat="image"
+detectedCnbBuilder="paketobuildpacks/builder:base"
+detectedChartName="neo9charts/n9-api"
+detectedChartVersion=""
+detectedCypressTest="false"
+detectedBranch=""
+dockerfile="Dockerfile"
+preinstall="false"
+detectedBuildToolToo=""
+shouldBeDeployed="false"
+detectedLhci="false"
 
-# Override the default echo function to prefix by the timestamp on each call.
-echo() {
-    command echo "[$(date)] $@"
-}
-
-# Default help message.
-help() {
-    command echo "Build detector."
-    command echo
-    command echo "This small utility aims to help building or detecting a project"
-    command echo "using its framework."
-    command echo
-    command echo "Global options:"
-    command echo
-    command echo "--working-dir=WORKING_DIR     Define the working directory."
-    command echo
-    command echo "Commands:"
-    command echo
-    command echo "> build-detector detect [ --working-dir= ]"
-    command echo
-    command echo "Output detection information in JSON."
-    # command echo
-    # command echo "> build-detector build  [ --working-dir= , --dockerfile=, --registry= ]"
-    # command echo
-    # command echo "Detect and build the project by detecting the underlying framework."
-    # command echo "You can optionnaly use a custom Dockerfile to build it (if not empty)."
-    # command echo "--dockerfile and --registry are optionals but you will need to parse"
-    # command echo "ouput in order to manually push the image to the registry."
-}
-
-# Build an image. In fact, this function is just a wrap to handle failure.
-build() {
-    echo "Running \"$@\"."
-    echo "Build log will be stored in \"${WORKING_DIR%/}/.build/build.log\"."
-
-    log=$($@ | tee .build/build.log) || fail=1
-
-    if [ "$fail" == "1" ]; then
-        echo "Build fail. Exiting."
-        exit 3
-    fi
-
-    echo "Successfully built the image."
-}
-
-# Assert a list of programs/tools are installed in the system.
-assert_installed() {
-    for tool in "$@"; do
-        if ! [ -x "$(command -v $tool)" ]; then
-            echo "Oops, the system is missing \"$tool\". Aborting." >&2
-            exit 1
-        fi
-    done
-}
-
-###############################################################################
-# Script initialization.
-###############################################################################
-
-while [ -n "$1" ]; do
-    case "$1" in
-        # build)            OPERATION="build"  ;;
-        detect)           OPERATION="detect" ;;
-        -w|--working-dir) WORKING_DIR=$2     ; shift ;;
-        -d|--dockerfile)  DOCKERFILE=$2      ; shift ;;
-        -r|--registry)    REGISTRY_IMAGE=$2  ; shift ;;
-        -h|--help)
-            help
-            exit
-            ;;
-        *)
-            command echo "Parsing error: $1 not reconized."
-            command echo "---"
-            command echo
-            help
-
-            exit
-            ;;
-    esac
-    shift
-done
-
-# Check if the operation is properly set. If not, just display the help message.
-if [ -z $OPERATION ]; then
-    help
-    exit
+if [ ! -z "$PARAMS_DOCKERFILE_OVERRIDE" ]; then
+    dockerfile=$PARAMS_DOCKERFILE_OVERRIDE
 fi
 
-###############################################################################
-# Directory and variables initialization.
-###############################################################################
-
-# Go to the working directory.
-cd $WORKING_DIR
-
-# Setting up project detection. We need some variables.
-CNB_BUILDER="paketobuildpacks/builder:base"
-BUILD_TOOL=""
-IMAGE_BUILD_TOOL="cnb"
-BUILD_FORMAT="image"
-HELM_CHART_NAME="neo9charts/n9-api"
-HELM_CHART_VERSION=""
-CYPRESS_TI="false"
-TAG=""
-
-###############################################################################
-# Detection.
-###############################################################################
-
-# This variable is just a refactoring purpose. We don't need it as output.
-HELM_CHART=""
-
-# Start by checking if the working directory contains a (custom?) Dockerfile.
-if [ -f $DOCKERFILE ]; then
-    BUILD_TOOL="docker"
-    IMAGE_BUILD_TOOL="buildah"
-
-# Next, do the same check for Java (Gradle).
+if [ -f $dockerfile ]; then
+    detectedBuildTool="docker"
+    detectedImageBuildTool="buildah"
+    if [ -f build.gradle ]; then
+        detectedBuildToolToo="gradle"
+    elif [ -f pom.xml ]; then
+        detectedBuildToolToo="maven"
+    elif [ -f package.json ]; then
+        detectedBuildToolToo="npm"
+    fi
 elif [ -f build.gradle ]; then
-    BUILD_TOOL="gradle"
-
-    if grep --quiet 'com.google.cloud.tools.jib' build.gradle; then
-        IMAGE_BUILD_TOOL="jib"
-    elif grep --quiet 'bootBuildImage' build.gradle; then
-        IMAGE_BUILD_TOOL="boot"
-    else
-        echo "Unable to detect image build tool for \"$BUILD_TOOL\"."
+    detectedBuildTool="gradle"
+    detectedBuildToolToo="gradle"
+    if grep 'com.google.cloud.tools.jib' build.gradle; then
+        detectedImageBuildTool="jib"
     fi
-
-    # Detecting Helm chart if specified.
     if grep -E 'helmChart(.*)=' build.gradle; then
-        HELM_CHART=$(grep -E 'helmChart(.*)=' build.gradle | awk -F= '{print $2}' | xargs)
+        helmChartNameAndVersion=$(grep -E 'helmChart(.*)=' build.gradle | awk -F= '{print $2}' | xargs)
+        detectedChartName=$(echo "$helmChartNameAndVersion" | awk -F: '{print $1}' | tr -d '\n')
+        detectedChartVersion=$(echo "$helmChartNameAndVersion" | awk -F: '{print $2}' | tr -d '\n')
     fi
-
-# Check for Maven.
 elif [ -f pom.xml ]; then
-    BUILD_TOOL="maven"
-
+    detectedBuildTool="maven"
+    detectedBuildToolToo="maven"
     if grep  'jib' pom.xml; then
-        IMAGE_BUILD_TOOL="jib"
+        detectedImageBuildTool="jib"
     fi
-
     if grep '<helmChart>' pom.xml; then
-        HELM_CHART=$(grep '<helmChart>' pom.xml | sed 's,<helmChart>\(.*\)</helmChart>,\1,g' | xargs)
+        helmChartNameAndVersion=$(grep '<helmChart>' pom.xml | sed 's,<helmChart>\(.*\)</helmChart>,\1,g' | xargs)
+        detectedChartName=$(echo "$helmChartNameAndVersion" | awk -F: '{print $1}' | tr -d '\n')
+        detectedChartVersion=$(echo "$helmChartNameAndVersion" | awk -F: '{print $2}' | tr -d '\n')
     fi
-
-# Check for JS/NodeJS.
 elif [ -f package.json ]; then
-    BUILD_TOOL=$([ -f yarn.lock ] && command echo "yarn" || command echo "npm")
-
+    detectedBuildTool="npm"
+    detectedBuildToolToo="npm"
     if grep 'cnbBuilder' package.json; then
-        CNB_BUILDER=$(cat package.json | jq --raw-output '.cnbBuilder')
+        detectedCnbBuilder=$(cat package.json | jq --raw-output '.cnbBuilder')
     fi
-
     if grep 'helmChart' package.json; then
-        HELM_CHART=$(cat package.json | jq --raw-output '.helmChart')
+        helmChartNameAndVersion=$(cat package.json | jq --raw-output '.helmChart')
+        detectedChartName=$(echo "$helmChartNameAndVersion" | awk -F: '{print $1}' | tr -d '\n')
+        detectedChartVersion=$(echo "$helmChartNameAndVersion" | awk -F: '{print $2}' | tr -d '\n')
     fi
-
-elif [ -f go.mod ]; then
-    BUILD_TOOL="go"
-    IMAGE_BUILD_TOOL="pack"
-
-# Oops, we can't detect the building stack.
 else
-    echo "Could not detect build stack. Aborting."
+    echo 'could not detect build tool, aborting'
     exit 3
 fi
 
-# Detect Helm chart name and version.
-if [ ! -z $HELM_CHART ]; then
-    HELM_CHART_NAME=$(echo $HELM_CHART | awk -F: '{print $1}' | tr -d '\n')
-    HELM_CHART_VERSION=$(echo $HELM_CHART | awk -F: '{print $2}' | tr -d '\n')
+if [ -f values/config.yaml ]; then
+    detectedChartName=$(cat values/config.yaml | awk -F ': ' 'NR==1{print $2}')
+    detectedChartVersion=$(cat values/config.yaml | awk -F ': ' 'NR==2{print $2}')
 fi
 
-# Detect Cypress tests.
+if [ ! -z "$PARAMS_CHART_NAME_OVERRIDE" ]; then
+    detectedChartName="$PARAMS_CHART_NAME_OVERRIDE"
+fi
+
+if [ ! -z "$PARAMS_CHART_VERSION_OVERRIDE" ]; then
+    detectedChartVersion="$PARAMS_CHART_VERSION_OVERRIDE"
+fi
+
+if [ -f package.json ]; then
+    if grep -q "ci:preinstall" package.json; then
+        preinstall="true"
+    fi
+fi
+
+if [ ! -z "$PARAMS_BUILD_FORMAT_OVERRIDE" ]; then
+    detectedBuildFormat="$PARAMS_BUILD_FORMAT_OVERRIDE"
+fi
+
+if [ ! -z "$PARAMS_BUILD_TOOL_OVERRIDE" ]; then
+    detectedBuildTool="$PARAMS_BUILD_TOOL_OVERRIDE"
+fi
+
 if [ -d cypress ]; then
-    CYPRESS_TI="true"
+    detectedCypressTest="true"
 fi
 
-###############################################################################
-# Only output the detection.
-###############################################################################
-
-# Only detect (output as JSON).
-if [ "$OPERATION" != "build" ]; then
-    jq --null-input -Mc \
-        --arg CNB_BUILDER "$CNB_BUILDER" \
-        --arg BUILD_TOOL "$BUILD_TOOL" \
-        --arg IMAGE_BUILD_TOOL "$IMAGE_BUILD_TOOL" \
-        --arg BUILD_FORMAT "$BUILD_FORMAT" \
-        --arg HELM_CHART_NAME "$HELM_CHART_NAME" \
-        --arg HELM_CHART_VERSION "$HELM_CHART_VERSION" \
-        --arg CYPRESS_TI "$CYPRESS_TI" \
-        --arg REGISTRY "$REGISTRY_IMAGE" \
-        '{
-            "CNB_BUILDER": $CNB_BUILDER,
-            "BUILD_TOOL": $BUILD_TOOL,
-            "IMAGE_BUILD_TOOL": $IMAGE_BUILD_TOOL,
-            "BUILD_FORMAT": $BUILD_FORMAT,
-            "HELM_CHART_NAME": $HELM_CHART_NAME,
-            "HELM_CHART_VERSION": $HELM_CHART_VERSION,
-            "CYPRESS_TI": $CYPRESS_TI,
-            "REGISTRY": $REGISTRY,
-        }'
-
-    # Use `jq` error code to finish the program.
-    exit $?
+if [ -f lighthouserc.yml ]; then
+    detectedLhci="true"
 fi
 
-################################################################################
-# Process the build.
-################################################################################
+if [ -d values ]; then
+    shouldBeDeployed="true"
+fi
 
-echo "Build the project using $BUILD_TOOL."
-[ -d .build ] || mkdir .build
-
-IMAGE_ID=""
-IMAGE_TAG=""
-
-case "$BUILD_TOOL" in
-    docker)
-        assert_installed docker
-        build docker build . -f $DOCKERFILE
-        ;;
-    gradle)
-        assert_installed java
-
-        if [ "$IMAGE_BUILD_TOOL" == "jib" ]; then
-            build ./gradlew jibDockerBuild
-        elif [ "$IMAGE_BUILD_TOOL" == "boot" ]; then
-            build NATIVE_IMAGE=false ./gradlew bootBuildImage
-        else
-            echo "Unsupported \"$IMAGE_BUILD_TOOL\" for \"$BUILD_TOOL\"."
-            exit 1
-        fi
-        ;;
-    go)
-        build pack build $(basename "$WORKING_DIR") \
-            --buildpack gcr.io/paketo-buildpacks/go \
-            --builder paketobuildpacks/builder:base
-        ;;
-    maven)
-        assert_installed java
-        build ./mvnw compile jib:dockerBuild
-        ;;
-    yarn)
-        assert_installed yarn pack
-        build yarn buildImage
-        ;;
-    npm)
-        assert_installed npm pack
-        build npm run buildImage
-        ;;
-    *)
-        echo "\"$BUILD_TOOL\" is not supported yet. Aborting."
-        exit 3
-        ;;
-esac
-
-################################################################################
-# Determine the image tag.
-################################################################################
-
-# By default, this will be used for `pack` builds.
-if [[ $(cat .build/build.log | tac | grep Images | sed 's/.*(\(.*\)):/\1/') ]]; then
-    IMAGE_ID=$(cat .build/build.log | tac | grep Images | sed 's/.*(\(.*\)):/\1/')
-    IMAGE_TAG=$(command echo "$IMAGE_ID" | cut -c1-16)
-
-# Custom Java build.
-elif [ -f build/jib-image.id -a -f build/jib-image.digest ]; then
-    IMAGE_ID=$(cat target/jib-image.id | awk -F: '{print $2}')
-    IMAGE_TAG=$(cat target/jib-image.digest | awk -F: '{print $2}' | cut -c1-16)
-
-# Fallback on a Docker log build.
+regexVersion='^v([0-9]+\.){0,2}(\*|[0-9]+)([-,a-z,0-9]*)$'
+if [[ "$PARAMS_BRANCH_OVERRIDE" =~ $regexVersion ]]; then
+    detectedBranch="tag"
 else
-    IMAGE_ID=$(cat ".build/build.log" | grep "Successfully built" | sed 's/Successfully built \(.*\)/\1/')
-    IMAGE_TAG=$(command echo "$IMAGE_ID" | cut -c1-16)
+    detectedBranch="$PARAMS_BRANCH_OVERRIDE"
 fi
 
-################################################################################
-# Push to registry
-################################################################################
+if [[ -e /etc/podinfo/labels ]]; then
+    piplinerunName=`cat /etc/podinfo/labels`
+fi;
 
-# If the REGISTRY_IMAGE variable is set, simply automatically push to this
-# registry by renaming the image tag.
-if [ ! -z "$REGISTRY_IMAGE" ]; then
-    echo "Pushing the image to the registry \"$REGISTRY_IMAGE:$IMAGE_TAG\"."
-
-    docker tag $IMAGE_ID "$REGISTRY_IMAGE:$IMAGE_TAG" &> /dev/null
-    docker push "$REGISTRY_IMAGE:$IMAGE_TAG" &> /dev/null
+if [[ -z "$OUTPUT_PATH" ]]; then
+    OUTPUT_PATH="."
 fi
 
-################################################################################
-# Cleanup and final writing.
-################################################################################
+if [[ -z "$OUTPUT_NAME" ]]; then
+    OUTPUT_NAME="build-detector.json"
+fi
 
-echo "Storing image tag ($IMAGE_TAG) in \".build/tag\"."
-command echo $IMAGE_TAG > .build/tag
+cat <<EOF > "${OUTPUT_PATH}/${OUTPUT_NAME}"
+{
+    "detectedCnbBuilder": "${detectedCnbBuilder}",
+    "detectedBuildTool":  "${detectedBuildTool}",
+    "detectedBuildToolToo": "${detectedBuildToolToo}",
+    "detectedImageBuildTool": "${detectedImageBuildTool}",
+    "detectedBuildFormat": "${detectedBuildFormat}",
+    "detectedChartName": "${detectedChartName}",
+    "detectedChartVersion": "${detectedChartVersion}",
+    "detectedCypressTest": "${detectedCypressTest}",
+    "detectedBranch": "${detectedBranch}",
+    "piplinerunName": "${piplinerunName}",
+    "preinstall": "${preinstall}",
+    "shouldBeDeployed": "${shouldBeDeployed}",
+    "detectedLhci": "${detectedLhci}"
+}
+EOF
 
-echo "Done."
+cat "$OUTPUT_PATH/$OUTPUT_NAME"
+
+echo "End of build-detector"
