@@ -16,9 +16,11 @@ detectedCypressTest="false"
 detectedBranch=""
 dockerfile="Dockerfile"
 preinstall="false"
+postinstall="false"
 detectedBuildToolToo=""
 shouldBeDeployed="false"
 detectedLhci="false"
+buildDependencies="false"
 
 if [ ! -z "$PARAMS_DOCKERFILE_OVERRIDE" ]; then
     dockerfile=$PARAMS_DOCKERFILE_OVERRIDE
@@ -89,6 +91,12 @@ if [ -f package.json ]; then
     if grep -q "ci:preinstall" package.json; then
         preinstall="true"
     fi
+    if grep -q "ci:postinstall" package.json; then
+        postinstall="true"
+    fi
+    if grep -q "buildDependencies" package.json; then
+        buildDependencies="true"
+    fi
 fi
 
 if [ ! -z "$PARAMS_BUILD_FORMAT_OVERRIDE" ]; then
@@ -143,6 +151,7 @@ cat <<EOF > "${OUTPUT_PATH}/${OUTPUT_NAME}"
     "detectedBranch": "${detectedBranch}",
     "piplinerunName": "${piplinerunName}",
     "preinstall": "${preinstall}",
+    "postinstall": "${postinstall}",
     "shouldBeDeployed": "${shouldBeDeployed}",
     "detectedLhci": "${detectedLhci}"
 }
