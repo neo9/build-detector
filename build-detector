@@ -10,6 +10,7 @@ detectedBuildTool=""
 detectedImageBuildTool="cnb"
 detectedBuildFormat="image"
 detectedCnbBuilder="paketobuildpacks/builder:base"
+detectedCnbBuilder=""
 detectedChartName="neo9charts/n9-api"
 detectedChartVersion=""
 detectedCypressTest="false"
@@ -63,6 +64,7 @@ elif [ -f package.json ]; then
     detectedBuildToolToo="npm"
     if grep 'cnbBuilder' package.json; then
         detectedCnbBuilder=$(cat package.json | jq --raw-output '.cnbBuilder')
+        detectedCnbRunImage=$(cat package.json | jq --raw-output '.cnbRunImage')
     fi
     if grep 'helmChart' package.json; then
         helmChartNameAndVersion=$(cat package.json | jq --raw-output '.helmChart')
@@ -140,6 +142,7 @@ fi
 
 cat <<EOF > "${OUTPUT_PATH}/${OUTPUT_NAME}"
 {
+    "detectedCnbRunImage": "${detectedCnbRunImage}",
     "detectedCnbBuilder": "${detectedCnbBuilder}",
     "detectedBuildTool":  "${detectedBuildTool}",
     "detectedBuildToolToo": "${detectedBuildToolToo}",
