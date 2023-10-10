@@ -77,8 +77,8 @@ else
 fi
 
 if [ -f values/config.yaml ]; then
-    detectedChartName=$(cat values/config.yaml | awk -F ': ' 'NR==1{print $2}')
-    detectedChartVersion=$(cat values/config.yaml | awk -F ': ' 'NR==2{print $2}')
+    detectedChartName=$(awk -F ': ' 'NR==1{print $2}' values/config.yaml | awk '{$1=$1;print}')
+    detectedChartVersion=$(awk -F ': ' 'NR==2{print $2}' values/config.yaml | awk '{$1=$1;print}')
 fi
 
 if [ ! -z "$PARAMS_CHART_NAME_OVERRIDE" ]; then
